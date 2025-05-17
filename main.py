@@ -15,9 +15,6 @@ from keras import backend as keras
 
 from metrics import iou, dice_coef
 
-from _unet import unet_2d
-from _vnet import vnet_2d
-
 """DATASET DIRECTORY"""
 data_dir = 'd://z/master/comvis/segmentation/isbi_membrane/membrane/'
 train_path = data_dir + "train"
@@ -33,7 +30,7 @@ out_rows = 512
 out_cols = 512
 
 dataset_name = 'isbi_membrane'
-model_name = 'vnet'
+model_name = 'unetpp'
 
 """LOAD DATASET"""
 def create_train_data(train_path, label_path, out_rows, out_cols, img_type):
@@ -112,6 +109,10 @@ def load_train_data(npy_path):
         imgs_mask_train /= 255
         imgs_mask_train[imgs_mask_train > 0.5] = 1
         imgs_mask_train[imgs_mask_train <= 0.5] = 0
+
+        #if len(imgs_mask_train.shape) == 3:
+        #    imgs_mask_train = np.expand_dims(imgs_mask_train, axis=-1)
+
         return imgs_train, imgs_mask_train
 
 def load_test_data(npy_path):
@@ -131,15 +132,45 @@ imgs_test = load_test_data(npy_path)
 print(imgs_test.shape)
 
 """ SEMANTIC SEGMENTATION MODEL"""
-"""UNet 2D"""
-#model = unet_2d((out_rows, out_cols, 1), filter_num=[64, 128, 256, 512, 1024], n_labels=1)
+from _unet import unet_2d
+from _vnet import vnet_2d
+from _unet2p import unet2p_2d
+from _resunet import resunet_a_2d
+from _r2unet import r2unet_2d
+from _att_unet import Attention_UNet
+from _att_resunet import Attention_ResUNet
+from _u2net import U2Net
+from _unet3p import unet3plus
 
+"""UNet 2D"""
+model_unet = unet_2d((out_rows, out_cols, 1), 1)
 """VNet 2D"""
-model = vnet_2d((out_rows, out_cols, 1), num_class=1)
-#model = vnet_2d()
+model_vnet = vnet_2d(None,(out_rows, out_cols, 1), 1)
+"""UNet 2D plus plus"""
+model_unet2p = unet2p_2d((out_rows, out_cols, 1), 1)
+"""R-UNet 2D"""
+model_r2unet = r2unet_2d(out_rows, out_cols, 1)
+"""Res-UNet 2D"""
+model_resunet = resunet_a_2d((out_rows, out_cols, 1), 1)
+""""Attention U-Net 2D"""
+model_attUNet = Attention_UNet((out_rows, out_cols, 1), 1, dropout_rate=0.0, batch_norm=True)
+"""Attention Res-UNet 2D"""
+model_attResUnet = Attention_ResUNet((out_rows, out_cols, 1), 1, dropout_rate=0.0, batch_norm=True)
+"""U-2-Net 2D"""
+model_u2net = U2Net((out_rows, out_cols, 1))
+metrics_list_u2net = [['accuracy', iou, dice_coef] for _ in range(7)]  # 7 outputs need 7 sets of metrics
+"""UNET 3+ 2D"""
+model_unet3p = unet3plus((out_rows, out_cols, 1), 1)
+
+"""Call your model"""
+model = model_unet3p
 
 """Model Compilation"""
-model.compile(optimizer = Adam(learning_rate = 1e-4), loss = 'binary_crossentropy', metrics = ['accuracy', iou, dice_coef])
+model.compile(optimizer = Adam(learning_rate = 1e-4),
+              loss = 'binary_crossentropy',
+              metrics = ['accuracy', iou, dice_coef]
+              #metrics = metrics_list_u2net
+              )
 model.summary()
 
 save_dir = os.path.join(os.getcwd(), 'outputs')
@@ -154,7 +185,6 @@ model_checkpoint = ModelCheckpoint(model_path,
                                    monitor='val_accuracy',
                                    verbose=1,
                                    save_best_only=True)
-
 print('Fitting model...')
 history = model.fit(imgs_train,
                     imgs_mask_train,

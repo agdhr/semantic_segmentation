@@ -1,4 +1,8 @@
 # -*- coding: utf-8 -*-
+# Author FENG Shuanglang
+# 2D V-Net implementation in Keras
+# Ref: https://github.com/FENGShuanglang/2D-Vnet-Keras
+
 import numpy as np 
 import os
 import skimage.io as io
@@ -25,24 +29,17 @@ def dice_coef(y_true, y_pred, smooth, thresh):
 
 def dice_loss(smooth, thresh):
     def dice(y_true, y_pred):
-        
         return 1-dice_coef(y_true, y_pred, smooth, thresh)
     return dice
-  
-  
-    
 
 def resBlock(conv,stage,keep_prob,stage_num=5):#收缩路径
-    
     inputs=conv
-    
     for _ in range(3 if stage>3 else stage):
         conv=PReLU()(BatchNormalization()(Conv2D(16*(2**(stage-1)), 5, activation = None, padding = 'same', kernel_initializer = 'he_normal')(conv)))
         #print('conv_down_stage_%d:' %stage,conv.get_shape().as_list())#输出收缩路径中每个stage内的卷积
     conv_add=PReLU()(add([inputs,conv]))
     #print('conv_add:',conv_add.get_shape().as_list())
     conv_drop=Dropout(keep_prob)(conv_add)
-    
     if stage<stage_num:
         conv_downsample=PReLU()(BatchNormalization()(Conv2D(16*(2**stage), 2, strides=(2, 2),activation = None, padding = 'same', kernel_initializer = 'he_normal')(conv_drop)))
         return conv_downsample,conv_add#返回每个stage下采样后的结果,以及在相加之前的结果
@@ -50,7 +47,6 @@ def resBlock(conv,stage,keep_prob,stage_num=5):#收缩路径
         return conv_add,conv_add#返回相加之后的结果，为了和上面输出保持一致，所以重复输出
         
 def up_resBlock(forward_conv,input_conv,stage):#扩展路径
-    
     conv=concatenate([forward_conv,input_conv],axis = -1)
     #print('conv_concatenate:',conv.get_shape().as_list())
     for _ in range(3 if stage>3 else stage):
@@ -64,37 +60,33 @@ def up_resBlock(forward_conv,input_conv,stage):#扩展路径
         return conv_add
 
 def vnet_2d(pretrained_weights = None,input_size = (512,512,1),num_class=1,is_training=True,stage_num=5,thresh=0.5):#二分类时num_classes设置成1，不是2，stage_num可自行改变，也即可自行改变网络深度
+    """
+    The base of 2-d V-net.
+
+    Milletari, F., Navab, N. and Ahmadi, S.A., 2016, October. V-net: Fully convolutional neural
+    networks for volumetric medical image segmentation. In 2016 the fourth international conference
+    on 3D vision (3DV) (pp. 565-571). IEEE.
+
+    The Two-dimensional version is inspired by:
+    https://github.com/FENGShuanglang/2D-Vnet-Keras
+
+    """
     keep_prob = 0.5 if is_training else 1.0 #不使用dropout
     features=[]
     input_model = Input(input_size)
     x=PReLU()(BatchNormalization()(Conv2D(16, 5, activation = None, padding = 'same', kernel_initializer = 'he_normal')(input_model)))
-    
     for s in range(1,stage_num+1):
         x,feature=resBlock(x,s,keep_prob,stage_num)#调用收缩路径
         features.append(feature)
-        
     conv_up=PReLU()(BatchNormalization()(Conv2DTranspose(16*(2**(s-2)),2,strides=(2, 2),padding='valid',activation = None,kernel_initializer = 'he_normal')(x)))
-    
     for d in range(stage_num-1,0,-1):
         conv_up=up_resBlock(features[d-1],conv_up,d)#调用扩展路径
     if num_class>1:
         conv_out=Conv2D(num_class, 1, activation = 'softmax', padding = 'same', kernel_initializer = 'he_normal')(conv_up)
     else:
         conv_out=Conv2D(num_class, 1, activation = 'sigmoid', padding = 'same', kernel_initializer = 'he_normal')(conv_up)
-    
-    
-    
-    
     model=Model(inputs=input_model,outputs=conv_out)
     print(model.output_shape)
-    
 
-    #model_dice=dice_loss(smooth=1e-5,thresh=0.5)
-    #model.compile(optimizer = Nadam(learning_rate = 2e-4), loss = model_dice, metrics = ['accuracy'])
-    
-    #plot_model(model, to_file='model.png')
-    #if(pretrained_weights):
-    #	model.load_weights(pretrained_weights)
-    
     return model
 #model=vnet(input_size = (512,1024,1),num_classes=1,is_training=True,stage_num=5)
